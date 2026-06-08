@@ -1,0 +1,19 @@
+# Data folder — ignore contents but keep the folder structure via .gitkeep
+Data/*
+!Data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Large binaries / data files
+*.nc
+*.h5
+*.hdf5
+
+# Editor / OS
+.vscode/
+.DS_Store
