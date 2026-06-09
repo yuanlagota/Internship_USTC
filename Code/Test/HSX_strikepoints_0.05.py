@@ -16,8 +16,6 @@ model.load(model = "vessel1_0.05", database = "test")
 tasks.fluxsurf3d_grid(r0 = (1.49, 0.0, 0.0), nsym = 4, nphi = 90, ntheta = 360, endpoints=False, output = 'HSXfluxsurf3d.grid')
 
 
-
-
 # add articifical cross-field diffusion in order to mimic particle and heat exhaust
 control.fieldline.diffusion = 1.e-5
 # limit integration step to ~1 deg
