@@ -10,31 +10,34 @@ control.screen_output.verbosity = 0
 # 0. Load Model 
 model.load(model = "vessel1_0.05", database = "test")
 
-# 1. generate mesh for launch locations at last closed flux surface (LCFS)
-tasks.fluxsurf3d_grid(
-    r0 = (1.395, 0.0, 0.0), # a reference point on a magnetic flux surface that is closed 
-    nsym = 4, # toroidal symmetry 
-    nphi = 90, # steps in toroidal direction 
-    ntheta = 360, # steps in poloidal direction
-    endpoints=True, # include/exclude periodic endpoints of grid 
-    output = '../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSXfluxsurf3d_0.05.grid' #Filename for output 
-    )
+# # 1. generate mesh for launch locations at last closed flux surface (LCFS) - IF NOT YET DONE 
+# # Controlling the flux surface
+# control.fluxsurf3d.npoints = 500
+
+# tasks.fluxsurf3d_grid(
+#     r0 = (1.395, 0.0, 0.0), # a reference point on a magnetic flux surface that is closed 
+#     nsym = 4, # toroidal symmetry 
+#     nphi = 90, # steps in toroidal direction 
+#     ntheta = 360, # steps in poloidal direction
+#     endpoints=True, # include/exclude periodic endpoints of grid 
+#     output = '../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSXfluxsurf3d_0.05.grid' #Filename for output 
+#     )
 
 # 2. field line diffusion i.e. simulating particle drift to wall - MAIN TASK 
+# Controlling the field line 
+control.fieldline.diffusion = 1.e-5 # add articifical cross-field diffusion in order to mimic particle and heat exhaust
+control.fieldline.hmax = 0.0175 # limit integration step to ~1 deg
+# control.fieldline.step_type = WHAT IS THE FASTEST? 
 
-# add articifical cross-field diffusion in order to mimic particle and heat exhaust
-control.fieldline.diffusion = 1.e-5
-
-# limit integration step to ~1 deg
-control.fieldline.hmax = 0.0175
 
 # trace field line from LCFS to divertor targets, add output of strike point coordinates on boundary - THIS IS WHAT WAS USED IN RESILIENT PAPER, NOT THE NORMAL 2D CONNECTION FIELD LINE 
 tasks.fieldline_connection(
     grid = "../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSXfluxsurf3d_0.05.grid", 
+    lcmax = 1000, 
     xfwd = True, 
     xbwd = True, 
-    ufwd=True, 
-    ubwd=True, 
+    ufwd=True, # Needed for strike point density 
+    ubwd=True, # Needed for strike point density 
     ierr= True,
     output = "../../Data/FLARE_DB/HSX_Test/vessel1_0.05/lc_0.05.dat"
     ) 
@@ -53,6 +56,10 @@ tasks.fieldline_connection(
 # model.load(model = "vessel2_0.10", database = "test")
 
 # # 1. generate mesh for launch locations at last closed flux surface (LCFS)
+
+# # Controlling the flux surface
+# control.fluxsurf3d.npoints = 1000
+
 # tasks.fluxsurf3d_grid(
 #     r0 = (1.395, 0.0, 0.0), # a reference point on a magnetic flux surface that is closed 
 #     nsym = 4, # toroidal symmetry 
@@ -63,10 +70,11 @@ tasks.fieldline_connection(
 #     )
 
 # # 2. field line diffusion i.e. simulating particle drift to wall - MAIN TASK 
-# # add articifical cross-field diffusion in order to mimic particle and heat exhaust
-# control.fieldline.diffusion = 1.e-5
-# # limit integration step to ~1 deg
-# control.fieldline.hmax = 0.0175
+
+# Controlling the field line 
+# control.fieldline.diffusion = 1.e-5 # add articifical cross-field diffusion in order to mimic particle and heat exhaust
+# control.fieldline.hmax = 0.0175 # limit integration step to ~1 deg
+# control.fieldline.step_type = 
 
 # # trace field line from LCFS to divertor targets, add output of strike point coordinates on boundary
 # tasks.fieldline_connection(
@@ -92,6 +100,11 @@ tasks.fieldline_connection(
 # model.load(model = "vessel3_0.15", database = "test")
 
 # # 1. generate mesh for launch locations at last closed flux surface (LCFS)
+
+# # Controlling the flux surface
+# control.fluxsurf3d.npoints = 1000
+
+
 # tasks.fluxsurf3d_grid(
 #     r0 = (1.395, 0.0, 0.0), # a reference point on a magnetic flux surface that is closed 
 #     nsym = 4, # toroidal symmetry 
@@ -102,10 +115,13 @@ tasks.fieldline_connection(
 #     )
 
 # # 2. field line diffusion i.e. simulating particle drift to wall - MAIN TASK 
-# # add articifical cross-field diffusion in order to mimic particle and heat exhaust
-# control.fieldline.diffusion = 1.e-5
-# # limit integration step to ~1 deg
-# control.fieldline.hmax = 0.0175
+
+
+# # Controlling the field line 
+# control.fieldline.diffusion = 1.e-5 # add articifical cross-field diffusion in order to mimic particle and heat exhaust
+# control.fieldline.hmax = 0.0175 # limit integration step to ~1 deg
+# control.fieldline.step_type = 'bdf'
+
 
 # # trace field line from LCFS to divertor targets, add output of strike point coordinates on boundary
 # tasks.fieldline_connection(
