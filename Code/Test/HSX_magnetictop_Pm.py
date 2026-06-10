@@ -16,10 +16,10 @@ tasks.poincare_map_Rlinspace(
     nR=40, # Number of reference points that are all equidistant to each other between R_start and R_end
     z0=0.0, # Initial Z coordinate for all initial points 
     phi0=0.0, # Initial phi coordinate for integration and initial points 
-    phi_section=0.0, # Angle at which we are taking the punctures of the field lines i.e. cross section 
+    phi_section=45.0, # Angle at which we are taking the punctures of the field lines i.e. cross section 
     nsym=4, # Symmetry in the stellarator 
     npoints = 1024, # Maximum is 1024
-    output = "../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSX_poincaremaps_0deg.dat", # Change the name to whatever file you are using 
+    output = "../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSX_poincaremaps_45deg.dat", # Change the name to whatever file you are using 
     bounded = True
     )
 

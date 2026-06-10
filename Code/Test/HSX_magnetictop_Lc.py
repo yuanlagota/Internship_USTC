@@ -79,8 +79,8 @@ model.load(model = "vessel1_0.05", database = "test") # FILE PATHS ARE RELATIVE 
 
 # 2. trace field line from LCFS to divertor targets, add output of strike point coordinates on boundary - THIS IS WHAT WAS USED IN RESILIENT PAPER, NOT THE NORMAL 2D CONNECTION FIELD LINE 
 tasks.fieldline_connection(
-    grid = "../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSXfluxsurf3d_0.05.grid", 
-    lcmax = 500, 
+    grid = "", #../../Data/FLARE_DB/HSX_Test/vessel1_0.05/HSXfluxsurf3d_0.05.grid", 
+    lcmax = 1000, 
     xfwd = False, 
     xbwd = False, 
     ufwd= False, 
