@@ -157,7 +157,7 @@ R_end = 1.50
 nR = 100
 z0 = 0
 phi0 = 0
-phi_section = 90
+phi_section = 22.5
 nsym = 4
 case_id = 'HSX'
 main_folder, model_folder, database_folder = 'HSX_Test', 'HSX_vessel1_5cm', 'test'
@@ -175,8 +175,8 @@ poincare_plots(
     main_folder,
     model_folder,
     database_folder,
-    plot_only = True,
-    plot_boundary = "one",
+    plot_only = False,
+    plot_boundary = "all",
     boundary_filelist = boundary_files
 )
 # Right now what I want to flag is this: apparently according to fluxsurf3d grid, taking an initial point at 0.894 or around there is a flux surface not closed? So is it wrong to make those my initial boundaries? 

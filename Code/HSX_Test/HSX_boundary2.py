@@ -65,7 +65,6 @@ innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
 mesh_plotname = f'mesh_{P1[0]:.3f}-{P2[0]:.3f}.png'
 
 # ---- &MmeshParameters namelist == the [mmesh_parameters] section ----
-phi_section = 45
 namelist = f"""&MmeshParameters
 layout = "unstructured"
 symmetry = 4
@@ -107,9 +106,10 @@ if rank == 0:
     BsplineCurve.loadtxt(os.path.join(mesh_dir, '2nd_inner_boundary0.dat')).view(color='r') 
 
     # OTHER BOUNDARIES: MANUAL CHANGE FOR NOW, BUT HAVE TO AUTOMATE LATER SO THAT ANY BOUNDARY COMBINATION CAN BE PLOTTED 
-    # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/vessel1_0.05/HSX_vessel1.dat').rzslice(phi_section).view()
-    # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/vessel2_0.10/HSX_vessel2.dat').rzslice(phi_section).view()
-    # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/vessel3_0.15/HSX_vessel3.dat').rzslice(phi_section).view()
+    # phi_section = 45
+    # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel1_5cm/HSX_vessel1_5cm.dat').rzslice(phi_section).view()
+    # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel2_10cm/HSX_vessel2_10cm.dat').rzslice(phi_section).view()
+    # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel3_15cm/HSX_vessel3_15cm.dat').rzslice(phi_section).view()
 
     plt.savefig(os.path.join(mesh_plotdir, innerbound_plotname), dpi=200)
     plt.show()
