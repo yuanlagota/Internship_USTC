@@ -35,8 +35,12 @@ def ensure_dir(path):
     comm.Barrier()              # ranks wait until the dir exists
     return path
 
+# ---- Controls ----
+control.screen_output.verbosity = 0
+
+
 # ---- Model Parameters ----
-database_folder, model_folder = "test", "HSX_vessel1_5cm"
+database_folder, model_folder = "test", "HSX_vessel_7cm"
 model.load(model = model_folder, database=database_folder)  # FILE PATHS ARE RELATIVE TO WHAT IS IN THE DATABASE CONFIGURATION FILE I.E. WHAT FILE PATH IS SET TO 'TEST'
 
 # ---- First and Second Inner Boundary Coordinates (typically the LCFS and the first CFS inside it) ----
@@ -46,8 +50,18 @@ P2 = (0.905, 0.0, 45.0)         # inner-boundary point 2 i.e. last closed flux s
 # ---- Unstructued Mesh Parameters --- 
 NT, NP, DELTA_R = 90, 360, 3.0e-3 # NT is the number of toroidal cells. From the paper, 0.5 toroidal resolution means degrees per cell. 
 
-# ---- Controls ----
-control.screen_output.verbosity = 0
+# ---- &MmeshParameters namelist == the [mmesh_parameters] section ----
+namelist = f"""&MmeshParameters
+layout = "unstructured"
+symmetry = 4
+stellarator_symmetry = True
+pcoordinates = "cylindrical"
+p1 = {P1[0]}, {P1[1]}, {P1[2]}
+p2 = {P2[0]}, {P2[1]}, {P2[2]}
+nt = {NT}
+np = {NP}
+delta_r = {DELTA_R}
+/"""
 
 # ---- Folders ----
 main_folder = 'HSX_Test'
@@ -64,21 +78,6 @@ plots_dir = ensure_dir(f'../../Data/Plots/{main_folder}/{boundary_filename.split
 mesh_plotdir = ensure_dir(plots_dir + f'/Mmesh_Lc_Dload_{P1[0]:.3f}-{P2[0]:.3f}')
 
 innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
-
-
-
-# ---- &MmeshParameters namelist == the [mmesh_parameters] section ----
-namelist = f"""&MmeshParameters
-layout = "unstructured"
-symmetry = 4
-stellarator_symmetry = True
-pcoordinates = "cylindrical"
-p1 = {P1[0]}, {P1[1]}, {P1[2]}
-p2 = {P2[0]}, {P2[1]}, {P2[2]}
-nt = {NT}
-np = {NP}
-delta_r = {DELTA_R}
-/"""
 
 ####################################################################################################### 
                                 # PART 1: MAGNETIC MESH GENERATION # 
@@ -112,9 +111,9 @@ delta_r = {DELTA_R}
 
 #     # OTHER BOUNDARIES: MANUAL CHANGE FOR NOW, BUT HAVE TO AUTOMATE LATER SO THAT ANY BOUNDARY COMBINATION CAN BE PLOTTED 
 #     # phi_section = 45
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel1_5cm/HSX_vessel1_5cm.dat').rzslice(phi_section).view()
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel2_10cm/HSX_vessel2_10cm.dat').rzslice(phi_section).view()
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel3_15cm/HSX_vessel3_15cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_3cm/HSX_vessel1_5cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_5cm/HSX_vessel2_10cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_7cm/HSX_vessel3_15cm.dat').rzslice(phi_section).view()
 
 #     plt.savefig(os.path.join(mesh_plotdir, innerbound_plotname), dpi=200)
 #     plt.show()
