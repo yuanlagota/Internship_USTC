@@ -112,9 +112,9 @@ delta_r = {DELTA_R}
 
 #     # OTHER BOUNDARIES: MANUAL CHANGE FOR NOW, BUT HAVE TO AUTOMATE LATER SO THAT ANY BOUNDARY COMBINATION CAN BE PLOTTED 
 #     # phi_section = 45
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_3cm/HSX_vessel1_5cm.dat').rzslice(phi_section).view()
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_5cm/HSX_vessel2_10cm.dat').rzslice(phi_section).view()
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_7cm/HSX_vessel3_15cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_3cm/HSX_vessel_3cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_5cm/HSX_vessel_5cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_7cm/HSX_vessel_7cm.dat').rzslice(phi_section).view()
 
 #     plt.savefig(os.path.join(mesh_plotdir, innerbound_plotname), dpi=200)
 #     plt.show()
@@ -164,16 +164,16 @@ init_workspace(filename = mmesh_nc, seed = 0)
 
 # ---- Generate the PFC ----
 if rank == 0:
-    pfc = pfc_from_flare(model=model_folder, plasma_side=1, database=database_folder) # What is plasma_side = 1? 
+    pfc = pfc_from_flare(model=model_folder, plasma_side= 1, database=database_folder) # What is plasma_side = 1? 
     pfc.savenc(pfc_nc)
 MPI.COMM_WORLD.Barrier()       # every rank waits until pfc.nc is on disk
 set_pfc(pfc_nc)
 
 # ---- Plotting Parameters ---- 
 
-NU = NV = 147                # nodes (toroidal, poloidal)
-NCELL = (NU - 1)             # 146 cells per direction
-ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 deg
+# NU = NV = 147                # nodes (toroidal, poloidal)
+# NCELL = (NU - 1)             # 146 cells per direction
+# ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 deg
 
 
 # ---- Controls ----
@@ -228,35 +228,35 @@ ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 d
 #     )
 # comm.Barrier() 
 
-# res = heat_load_proxy(
-#     n0=1e19, 
-#     T0=10.0, 
-#     chi=1.0, 
-#     nparticles=100000,
-#     tau=5e-7,
-#     dphi=0.5,
-#     dl=0.01, 
-#     output= os.path.join(mesh_dir, lht_filename)
-#     )
-# comm.Barrier() 
+res = heat_load_proxy(
+    n0=1e19, 
+    T0=100.0, 
+    chi=1.0, 
+    nparticles=100000,
+    tau=5e-7,
+    dphi=0.5,
+    dl=0.01, 
+    output= os.path.join(mesh_dir, lht_filename)
+    )
+comm.Barrier() 
 
-# '''2. Plot the Strike-Point Density and Heat Load Proxy on the PFC (.nc)'''
+'''2. Plot the Strike-Point Density and Heat Load Proxy on the PFC (.nc)'''
 
 # Strike Point Density 
-if rank == 0:  
-    # Check the file metadata 
-    strikepoint_nc = xr.open_dataset(os.path.join(mesh_dir, fld_filename))
-    print('Strike Point metadata and variables:', list(strikepoint_nc.data_vars))
+# if rank == 0:  
+#     # Check the file metadata 
+#     strikepoint_nc = xr.open_dataset(os.path.join(mesh_dir, fld_filename))
+#     print('Strike Point metadata and variables:', list(strikepoint_nc.data_vars))
 
-    # gather all strike points from 1st boundary and plot their location
-    strike_points = Dataset.loadnc(os.path.join(mesh_dir, fld_filename))
-    im = strike_points["p"].plot() # p = strike-point density [m^-2]
-    ax = im.axes
-    ax.set_xlim(0, 45) 
-    # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y*360:.0f}"))
-    plt.savefig(os.path.join(mesh_plotdir, fld_plot), dpi=200)
-    plt.show()
-comm.Barrier() 
+#     # gather all strike points from 1st boundary and plot their location
+#     strike_points = Dataset.loadnc(os.path.join(mesh_dir, fld_filename))
+#     im = strike_points["p"].plot() # p = strike-point density [m^-2]
+#     ax = im.axes
+#     ax.set_xlim(0, 45) 
+#     # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y*360:.0f}"))
+#     plt.savefig(os.path.join(mesh_plotdir, fld_plot), dpi=200)
+#     plt.show()
+# comm.Barrier() 
 
 # Heat Load Proxy 
 if rank == 0: 

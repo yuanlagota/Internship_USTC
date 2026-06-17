@@ -40,7 +40,7 @@ control.screen_output.verbosity = 0
 
 
 # ---- Model Parameters ----
-database_folder, model_folder = "test", "HSX_vessel_7cm"
+database_folder, model_folder = "test", "HSX_vessel_3cm"
 model.load(model = model_folder, database=database_folder)  # FILE PATHS ARE RELATIVE TO WHAT IS IN THE DATABASE CONFIGURATION FILE I.E. WHAT FILE PATH IS SET TO 'TEST'
 
 # ---- First and Second Inner Boundary Coordinates (typically the LCFS and the first CFS inside it) ----
@@ -87,7 +87,7 @@ innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
 
 # # ---- Generate model INTO the mesh folder ----
 # # MAKE SURE TO SET TRUE OR FALSE IF YOU WANT TO DO IT ONE BY ONE AND RERUN THE MPIEXEC
-# subtasks = np.array([False, False, True, False, False, False], dtype=bool)  # inner_boundary, base_mesh, flux_tubes, n0_domain (extended), divertor_plates
+# subtasks = np.array([True, False, True, False, False, False], dtype=bool)  # inner_boundary, base_mesh, flux_tubes, n0_domain (extended), divertor_plates
 
 # cwd = os.getcwd()
 # try:
@@ -97,10 +97,9 @@ innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
 #     os.chdir(cwd)               # always restore, even if generation raises
 
 
-
 # '''2. Visualising the inner boundaries and mesh'''
 
-# Inner Boundary
+# # Inner Boundary
 # if rank == 0:
 #     plot_maps(loadtxt_maps(os.path.join(mesh_dir, '1st_inner_boundary0.txt')), "b", s=0.2)
 #     plot_maps(loadtxt_maps(os.path.join(mesh_dir, '2nd_inner_boundary0.txt')), "r", s=0.2)
@@ -111,15 +110,15 @@ innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
 
 #     # OTHER BOUNDARIES: MANUAL CHANGE FOR NOW, BUT HAVE TO AUTOMATE LATER SO THAT ANY BOUNDARY COMBINATION CAN BE PLOTTED 
 #     # phi_section = 45
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_3cm/HSX_vessel1_5cm.dat').rzslice(phi_section).view()
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_5cm/HSX_vessel2_10cm.dat').rzslice(phi_section).view()
-#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_7cm/HSX_vessel3_15cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_3cm/HSX_vessel_3cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_5cm/HSX_vessel_5cm.dat').rzslice(phi_section).view()
+#     # Torosurf.loadtxt(f'../../Data/FLARE_DB/{main_folder}/HSX_vessel_7cm/HSX_vessel_7cm.dat').rzslice(phi_section).view()
 
 #     plt.savefig(os.path.join(mesh_plotdir, innerbound_plotname), dpi=200)
 #     plt.show()
 # comm.Barrier()  
 
-# Magnetic Mesh 
+# # Magnetic Mesh 
 # if rank == 0: 
 #     # Check metadata, coordinates, and variables
 #     magneticmesh_nc = xr.open_dataset(os.path.join(mesh_dir, 'mmesh.nc'))
@@ -141,7 +140,7 @@ innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
 #######################################################################################################  
 
 # ---- Poincare Reference Point ---- 
-reference_point = (0.894, 0, 45) 
+reference_point = (0.915, 0, 45) 
 
 # ---- Folders ----
 mmesh_file = 'mmesh.nc'
@@ -163,16 +162,16 @@ init_workspace(filename = mmesh_nc, seed = 0)
 
 # ---- Generate the PFC ----
 if rank == 0:
-    pfc = pfc_from_flare(model=model_folder, plasma_side=1, database=database_folder) # What is plasma_side = 1? 
+    pfc = pfc_from_flare(model=model_folder, plasma_side= 1, database=database_folder) # What is plasma_side = 1? 
     pfc.savenc(pfc_nc)
 MPI.COMM_WORLD.Barrier()       # every rank waits until pfc.nc is on disk
 set_pfc(pfc_nc)
 
 # ---- Plotting Parameters ---- 
 
-NU = NV = 147                # nodes (toroidal, poloidal)
-NCELL = (NU - 1)             # 146 cells per direction
-ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 deg
+# NU = NV = 147                # nodes (toroidal, poloidal)
+# NCELL = (NU - 1)             # 146 cells per direction
+# ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 deg
 
 
 # ---- Controls ----
@@ -183,39 +182,39 @@ ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 d
 #######################################################################################################     
 
 
-# '''1. Generate 3D mesh for launch locations at last closed flux surface (LCFS)''' 
+'''1. Generate 3D mesh for launch locations at last closed flux surface (LCFS)''' 
 
-# fluxsurf3d_grid(
-#     r0 = reference_point, # a reference point on a magnetic flux surface that is closed. MAKE SURE IT MATCHES ONE OF THE INNER BOUNDARY POINTS 
-#     nsym = 4, # toroidal symmetry 
-#     nphi = 90, # steps in toroidal direction i.e. where to look 
-#     ntheta = 360, # steps in poloidal direction
-#     endpoints=True, # include/exclude periodic endpoints of grid 
-#     output = os.path.join(mesh_dir, grid_filename) #Filename for output 
-#     )
+fluxsurf3d_grid(
+    r0 = reference_point, # a reference point on a magnetic flux surface that is closed. MAKE SURE IT MATCHES ONE OF THE INNER BOUNDARY POINTS 
+    nsym = 4, # toroidal symmetry 
+    nphi = 90, # steps in toroidal direction i.e. where to look 
+    ntheta = 360, # steps in poloidal direction
+    endpoints=True, # include/exclude periodic endpoints of grid 
+    output = os.path.join(mesh_dir, grid_filename) #Filename for output 
+    )
 
-# '''2. Calculate Connection Length Maps by field line tracing from LCFS to divertor targets USING FIELD LINE RECONSTRUCTION'''
-# if rank == 0: 
-#     connection_length(
-#         filename = os.path.join(mesh_dir, grid_filename),
-#         max_lc=1e3, 
-#         output= os.path.join(mesh_dir, lc_filename)
-#         )
-# comm.Barrier() 
+'''2. Calculate Connection Length Maps by field line tracing from LCFS to divertor targets USING FIELD LINE RECONSTRUCTION'''
+if rank == 0: 
+    connection_length(
+        filename = os.path.join(mesh_dir, grid_filename),
+        max_lc=1e3, 
+        output= os.path.join(mesh_dir, lc_filename)
+        )
+comm.Barrier() 
 
-# '''3. Connection-length map plot on the launch flux surface (.dat)''' 
-# if rank == 0: 
-#     connectionlength = Dataset.loadtxt(os.path.join(mesh_dir, lc_filename))     # grid rebuilt from the .grid in the header
-#     connectionlength["Lc"].plot()                                 # Lc = Lc_neg + Lc_pos  [m]
-#     plt.savefig(os.path.join(mesh_plotdir, lc_plot), dpi=200)
-#     plt.show()
-# comm.Barrier()
+'''3. Connection-length map plot on the launch flux surface (.dat)''' 
+if rank == 0: 
+    connectionlength = Dataset.loadtxt(os.path.join(mesh_dir, lc_filename))     # grid rebuilt from the .grid in the header
+    connectionlength["Lc"].plot()                                 # Lc = Lc_neg + Lc_pos  [m]
+    plt.savefig(os.path.join(mesh_plotdir, lc_plot), dpi=200)
+    plt.show()
+comm.Barrier()
 
 ####################################################################################################### 
                                     # PART 3: DIVERTOR LOAD # 
 #######################################################################################################     
 
-# # '''1. Perform Field line Diffusion and Linearised Heat Transport''' 
+'''1. Perform Field line Diffusion and Linearised Heat Transport''' 
 
 # strike_point_density(
 #     dcoeff=1e-5,
@@ -228,8 +227,8 @@ ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 d
 # comm.Barrier() 
 
 # res = heat_load_proxy(
-#     n0=1e19, 
-#     T0=10.0, 
+#     n0=1e19,  
+#     T0=100.0, 
 #     chi=1.0, 
 #     nparticles=100000,
 #     tau=5e-7,
@@ -239,36 +238,36 @@ ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 d
 #     )
 # comm.Barrier() 
 
-# '''2. Plot the Strike-Point Density and Heat Load Proxy on the PFC (.nc)'''
+'''2. Plot the Strike-Point Density and Heat Load Proxy on the PFC (.nc)'''
 
 # Strike Point Density 
-if rank == 0:  
-    # Check the file metadata 
-    strikepoint_nc = xr.open_dataset(os.path.join(mesh_dir, fld_filename))
-    print('Strike Point metadata and variables:', list(strikepoint_nc.data_vars))
+# if rank == 0:  
+#     # Check the file metadata 
+#     strikepoint_nc = xr.open_dataset(os.path.join(mesh_dir, fld_filename))
+#     print('Strike Point metadata and variables:', list(strikepoint_nc.data_vars))
 
-    # gather all strike points from 1st boundary and plot their location
-    strike_points = Dataset.loadnc(os.path.join(mesh_dir, fld_filename))
-    im = strike_points["p"].plot() # p = strike-point density [m^-2]
-    ax = im.axes
-    ax.set_xlim(0, 45) 
-    # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y*360:.0f}"))
-    plt.savefig(os.path.join(mesh_plotdir, fld_plot), dpi=200)
-    plt.show()
-comm.Barrier() 
+#     # gather all strike points from 1st boundary and plot their location
+#     strike_points = Dataset.loadnc(os.path.join(mesh_dir, fld_filename))
+#     im = strike_points["p"].plot() # p = strike-point density [m^-2]
+#     ax = im.axes
+#     ax.set_xlim(0, 45) 
+#     # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y*360:.0f}"))
+#     plt.savefig(os.path.join(mesh_plotdir, fld_plot), dpi=200)
+#     plt.show()
+# comm.Barrier() 
 
 # Heat Load Proxy 
-if rank == 0: 
-    # Check the file metadata 
-    heatload_nc = xr.open_dataset(os.path.join(mesh_dir, lht_filename))
-    print('Heat Load metadata and variables:', list(heatload_nc.data_vars))
+# if rank == 0: 
+#     # Check the file metadata 
+#     heatload_nc = xr.open_dataset(os.path.join(mesh_dir, lht_filename))
+#     print('Heat Load metadata and variables:', list(heatload_nc.data_vars))
 
-    # Load the file 
-    heat_load = Dataset.loadnc(os.path.join(mesh_dir, lht_filename))
-    im = heat_load["hload"].plot()  # p = strike-point density [m^-2]
-    ax = im.axes
-    ax.set_xlim(0, 45) 
-    # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y*360:.0f}"))
-    plt.savefig(os.path.join(mesh_plotdir, lht_plot), dpi=200)
-    plt.show()
-comm.Barrier() 
+#     # Load the file 
+#     heat_load = Dataset.loadnc(os.path.join(mesh_dir, lht_filename))
+#     im = heat_load["hload"].plot()  # p = strike-point density [m^-2]
+#     ax = im.axes
+#     ax.set_xlim(0, 45) 
+#     # ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y*360:.0f}"))
+#     plt.savefig(os.path.join(mesh_plotdir, lht_plot), dpi=200)
+#     plt.show()
+# comm.Barrier() 

@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+
+
+# initialize new file for automatic wrapper procedures -------------------------
+#
+# arguments:
+#     1    name for output file
+#     2    path or prefix for source file(s)
+#
+function open_autowrap() {
+    output=$1
+    path=$2
+    cat > $output << EOF
+! This file is generated automatically. DO NOT EDIT.
+EOF
+}
+# open_autowrap ----------------------------------------------------------------
+
+
+
+# generate f2py wrapper procedure ----------------------------------------------
+#
+# arguments:
+#     1    procedure type (subroutine or function)
+#     2    procedure name
+#     3    file name (relative to $path), if applicable
+#     4    prefix for name of wrapped procedure
+#
+function autowrap() {
+    proctype=$1
+    basename=$2
+    src=${path}/$3
+    procname=$4${basename}
+    if [[ "$path" == *f90 ]]; then
+        src=$path
+    fi
+
+
+    # use module statement
+    flare_module=$(gawk '/^module/ { print $2 }' ${src})
+    if [ "$flare_module" == "" ]; then
+        wrapped_proc=${procname}
+        use_flare_module=""
+    else
+        wrapped_proc="wrapped_proc"
+        use_flare_module="  use ${flare_module}, only: ${wrapped_proc} => ${procname}"
+    fi
+
+
+    # execute statement & signature
+    signature=$(sed -n "/${proctype} ${procname}(/,\${p;/)/q;}" $src)
+    args=$(echo "${signature}" | cut -d "(" -f 2 | cut -d ")" -f 1)
+    case "$proctype" in
+    subroutine)
+        run="call ${wrapped_proc}(${args})"
+        result=
+        specs_add=
+        ;;
+
+    function)
+        variable=$(echo ${signature} | cut -d "(" -f 3 | cut -d ")" -f 1)
+        result=" result(${variable})"
+        if [ "${variable}" == "" ]; then
+            result=
+            variable=${procname}
+        fi
+        run="${variable} = ${wrapped_proc}(${args})"
+        specs_add="\|:: ${variable}"
+        ;;
+
+    esac
+    specs=$(sed -n "/${proctype} ${procname}(/,/end ${proctype} ${procname}/p" $src | sed "/contains/,\$d" | grep "intent(${specs_add}")
+
+
+    # output
+    cat >> $output << EOF
+
+
+  !-----------------------------------------------------------------------------
+  ${proctype} ${basename}(${args})${result}
+${use_flare_module}
+${specs}
+
+  ${run}
+
+  end ${proctype} ${basename}
+  !-----------------------------------------------------------------------------
+EOF
+
+}
+# autowrap ---------------------------------------------------------------------
+
+
+
+# ------------------------------------------------------------------------------
+function autowrap_sub() {
+    autowrap "subroutine" $@
+}
+
+function autowrap_func() {
+    autowrap "function" $@
+}
+# ------------------------------------------------------------------------------
+
+
+
+
+
+# main program starts here =====================================================
+
+
+basename=$(basename $1)
+fortran_source_dir=$2
+case "$basename" in
+_model.f90)
+    open_autowrap   $1   ${fortran_source_dir}/model.f90
+    autowrap_sub    alloc_boundary
+    autowrap_sub    alloc_equi2d
+    autowrap_sub    alloc_equi3d
+    autowrap_sub    alloc_perturbation
+    autowrap_sub    load_axisurf
+    autowrap_sub    load_torosurf
+    autowrap_sub    loadnc_boundary
+    autowrap_sub    load_geqdsk
+    autowrap_sub    load_equi2d_jorek
+    autowrap_sub    load_equi2d_m3dc1
+    autowrap_sub    load_sonnet
+    autowrap_sub    load_amhd
+    autowrap_sub    load_equi3d_bmw
+    autowrap_sub    load_equi3d_coilset
+    autowrap_sub    load_equi3d_hint
+    autowrap_sub    load_equi3d_interp
+    autowrap_sub    load_equi3d_mgrid
+    autowrap_sub    load_bspline3d
+    autowrap_sub    load_coilset
+    autowrap_sub    load_gpec
+    autowrap_sub    load_interp
+    autowrap_sub    load_jorek
+    autowrap_sub    load_m3dc1
+    autowrap_sub    load_marsf
+    autowrap_sub    broadcast_model
+    autowrap_sub    setup_model
+    autowrap_sub    free_model
+    ;;
+
+
+_analysis.f90)
+    open_autowrap   $1   ${fortran_source_dir}/analysis
+    autowrap_sub    convert_coordinates     boundary.f90
+    autowrap_sub    invariant_manifold      invariant_manifold.f90
+    autowrap_func   footprint_size          invariant_manifold.f90
+    autowrap_func   melnikov_function       melnikov_function.f90
+    autowrap_func   melnikov_integral       melnikov_function.f90
+    autowrap_sub    fluxsurf2d_parameters   fluxsurf2d.f90
+    autowrap_func   equi2d_rzarray          fluxsurf2d.f90
+    autowrap_func   toroidal_mode           fourier_transform.f90
+    autowrap_func   fourier_transform       fourier_transform.f90
+    ;;
+
+
+_mmesh.f90)
+    open_autowrap   $1   ${fortran_source_dir}/mmesh
+    autowrap_sub    make_points_default     inner_boundary.f90
+    autowrap_sub    make_points_usr         inner_boundary.f90
+    autowrap_sub    bspline_multifit        inner_boundary.f90
+    autowrap_sub    exec                    generator.f90
+    autowrap_sub    generate_mmesh          unstructured/generator.f90
+    autowrap_func   magnetic_flux_cells     utils.f90
+    autowrap_func   magnetic_flux_xsects    utils.f90
+    ;;
+
+
+_tasks.f90)
+    open_autowrap   $1   ${fortran_source_dir}/tasks
+    for filename in $path/*.f90; do
+        autowrap_sub    $(basename $filename .f90)   $(basename $filename)   flare_task_
+    done
+    ;;
+esac

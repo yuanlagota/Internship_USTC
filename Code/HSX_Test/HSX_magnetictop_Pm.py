@@ -157,7 +157,7 @@ R_end = 1.50
 nR = 100
 z0 = 0
 phi0 = 0
-phi_section = 0
+phi_section = 12
 nsym = 4
 case_id = 'HSX'
 main_folder, model_folder, database_folder = 'HSX_Test', 'HSX_vessel_5cm', 'test'
@@ -175,7 +175,7 @@ poincare_plots(
     main_folder,
     model_folder,
     database_folder,
-    plot_only = True,
+    plot_only = False,
     plot_boundary = "one",
     boundary_filelist = boundary_files
 )
