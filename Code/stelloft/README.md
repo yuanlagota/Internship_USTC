@@ -25,11 +25,18 @@ contours, and freezes a point when a step would violate a constraint.
 
 ## Status
 
-- **Stage 1 (done, verified):** minimising edge manifold from an LCFS + keep-in
-  cloud, `torosurf` export. Output validated by the MOOSE `Torosurf.loadtxt`
-  reader; enclosure verified.
-- **Stage 2 (pending):** coil keep-out interference, once finite-build conductor
-  corner geometry is supplied (`coils.hsx` gives only centrelines).
+- **Part A — vacuum vessel (done, verified):** volume-maximising vessel from an
+  LCFS + `coils.hsx` keep-out cloud (`example_hsx.py`). Verified on real HSX
+  coils: vessel grows to 13-28 cm from the LCFS, stays inside the coils, exports a
+  `torosurf` that loads in MOOSE. `coils.hsx` gives filament *centerlines*; an
+  optional `inflate` offset (winding-pack half-width) moves the keep-out cloud
+  toward the plasma so the vessel clears the copper, not just the centerline.
+- **Part B — edge manifold (pending tooling):** volume-minimising manifold from an
+  `I_FLD` keep-in cloud. The keep-in mechanism is built and verified (`_smoketest`),
+  but the true `I_FLD` needs diffusing field-line *trajectories*. FIREFLY's
+  `strike_point_density` already traces them via the magnetic mesh (no integration)
+  but only records strike points; emitting the per-plane trajectory positions
+  (a localised Fortran change + rebuild) yields the paper-exact cloud.
 
 ## Dependencies
 
@@ -58,25 +65,26 @@ Loads the real HSX LCFS, fabricates a keep-in cloud (LCFS + 3 cm), runs the
 minimising loft from 7 cm, writes a `torosurf`. The surface settles just outside
 3 cm.
 
-## Real workflow
+## Real workflow (vacuum vessel)
 
-See `example_hsx.py`. The one thing to wire to your FLARE build is
-`load_mesh_nodes()` → return `(R, Z, phi, Lc)` for the magnetic-mesh nodes; the
-`from_mesh_nodes` adapter folds them into the half field period, filters by
-connection length (long-`Lc` = the edge channels = `I_FLD`), and bins them to the
-loft planes.
+See `HSX_Test/example_hsx.py` — runs today on `coils.hsx`:
 
 ```python
-from stelloft import LoftConfig, LoftSurface, build_grids, from_mesh_nodes, run_loft, write_torosurf
+from stelloft import LoftConfig, LoftSurface, build_grids, from_coils_makegrid, run_loft, write_torosurf
 
-cfg = LoftConfig()                                  # defaults follow paper Tables 1/2
+cfg = LoftConfig(initial_loft_offset_m=0.01,
+                 step_schedule_m=[0.03, 0.01, 0.005, 0.002])  # grow OUT to the coils
 surface = LoftSurface.from_wout("wout_hsx.nc")
 grids = build_grids(surface, cfg)
-iset = from_mesh_nodes(grids, surface.nfp, R, Z, phi, node_Lc=Lc,
-                       lc_threshold=50.0, role="keep_in")
+iset = from_coils_makegrid(grids, "coils.hsx", role="keep_out",
+                           inflate=0.0)            # inflate = conductor half-width
 surf, state = run_loft(grids, cfg, iset)
 write_torosurf("vessel.torosurf", surf["R"], surf["Z"], surf["zeta"], surface.nfp)
 ```
+
+For the (future) edge manifold, swap in a keep-in cloud via `from_plane_points` /
+`from_polylines` and use a negative `step_schedule_m` from a large
+`initial_loft_offset_m`.
 
 ## Key parameters (`LoftConfig`)
 

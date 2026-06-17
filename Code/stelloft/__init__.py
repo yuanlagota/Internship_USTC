@@ -11,7 +11,7 @@ from .surface import LoftSurface
 from .grids import build_grids, LoftGrids
 from .interference import (
     InterferenceSet, from_plane_points, from_mesh_nodes, from_polylines,
-    fold_into_half_period,
+    from_coils_makegrid, fold_into_half_period,
 )
 from .loft import run_loft, initialize, auto_loft_pass, build_surface, LoftState
 from .io_export import write_torosurf, write_stl
@@ -20,7 +20,7 @@ from . import geometry
 __all__ = [
     "LoftConfig", "LoftSurface", "build_grids", "LoftGrids",
     "InterferenceSet", "from_plane_points", "from_mesh_nodes", "from_polylines",
-    "fold_into_half_period",
+    "from_coils_makegrid", "fold_into_half_period",
     "run_loft", "initialize", "auto_loft_pass", "build_surface", "LoftState",
     "write_torosurf", "write_stl", "geometry",
 ]

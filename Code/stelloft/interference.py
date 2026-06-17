@@ -176,3 +176,62 @@ def from_polylines(grids, nfp, polylines, role="keep_out", fold=True):
     else:
         iset.keep_out_cp, iset.keep_out_ip = cp, ip
     return iset
+
+
+def _inflate_toward_axis(R, Z, R0, Z0, dist):
+    """Move (R,Z) points a distance ``dist`` toward the plane axis (R0,Z0).
+
+    Used for coil keep-out points: the filament is the conductor *centerline*;
+    moving each crossing toward the plasma by the winding-pack half-width puts the
+    obstacle at the copper's plasma-facing skin, so the vessel stops clear of it.
+    """
+    if dist <= 0 or len(R) == 0:
+        return R, Z
+    dR, dZ = R0 - R, Z0 - Z
+    nrm = np.hypot(dR, dZ)
+    nrm[nrm == 0] = 1.0
+    return R + dist * dR / nrm, Z + dist * dZ / nrm
+
+
+def from_coils_makegrid(grids, coils_file, role="keep_out", inflate=0.0):
+    """Build a keep-out InterferenceSet from a MAKEGRID coil file (e.g. coils.hsx).
+
+    Reads coil filaments via CoilPy ``Coil.read_makegrid``, slices each filament at
+    every loft plane, and (optionally) inflates the crossings toward the per-plane
+    LCFS axis by ``inflate`` metres (the conductor half-width) so the vessel keeps
+    clear of the copper rather than just the centerline.
+
+    This is the paper's volume-maximising "vacuum vessel" interference (Fig. 7-8).
+    """
+    from coilpy import Coil
+    coils = Coil.read_makegrid(str(coils_file))
+    polylines = [np.column_stack([np.asarray(c.x), np.asarray(c.y), np.asarray(c.z)])
+                 for c in coils.data]
+
+    def collect(plane_zetas, lcfs_grid):
+        out = []
+        for i, zeta in enumerate(plane_zetas):
+            xs, ys, zs = [], [], []
+            for poly in polylines:
+                x, y, z = slice_polyline_plane(zeta, poly)
+                if len(x):
+                    xs.append(x); ys.append(y); zs.append(z)
+            if xs:
+                x = np.concatenate(xs); y = np.concatenate(ys)
+                R = np.hypot(x, y); Z = np.concatenate(zs)
+                R0 = float(lcfs_grid["R"][i].mean())
+                Z0 = float(lcfs_grid["Z"][i].mean())
+                R, Z = _inflate_toward_axis(R, Z, R0, Z0, inflate)
+                out.append(np.column_stack([R, Z]))
+            else:
+                out.append(np.empty((0, 2)))
+        return out
+
+    cp = collect(grids.zeta_cp, grids.control_eval)
+    ip = collect(grids.zeta_ip, grids.intermediate_eval)
+    iset = InterferenceSet.empty(len(grids.zeta_cp), len(grids.zeta_ip))
+    if role == "keep_in":
+        iset.keep_in_cp, iset.keep_in_ip = cp, ip
+    else:
+        iset.keep_out_cp, iset.keep_out_ip = cp, ip
+    return iset

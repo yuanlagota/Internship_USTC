@@ -1,42 +1,26 @@
-"""Real-workflow driver template: HSX edge manifold from Lc-filtered mesh nodes.
+"""HSX vacuum vessel from coils.hsx (the paper's volume-maximising result, Fig. 7-8).
 
-This is the intended Stage-1 usage.  The only piece you must wire to your FLARE
-build is `load_mesh_nodes` -- pull node (R, Z, phi) and connection length Lc out
-of your magnetic mesh (mmesh.nc) / connection-length result.  Everything else is
-ready.
+Grows the LCFS outward along its normals until it would touch the coils, using the
+coils.hsx filaments (sliced per toroidal plane) as keep-out interference.  Exports
+a FLARE torosurf wall.  This is the working Stage-1 driver.
 
-Run (from the Code/ directory, in the ustcstellarator env):
-    python -m stelloft.example_hsx
+Run (in the ustcstellarator env, from anywhere):
+    python -m stelloft.example_hsx          # if importable as a module
+    python example_hsx.py                    # or directly
 """
 import os
-import numpy as np
-
 from stelloft import (LoftConfig, LoftSurface, build_grids,
-                      from_mesh_nodes, run_loft, write_torosurf)
+                      from_coils_makegrid, run_loft, write_torosurf)
 
 DATA = os.path.expanduser("~/Academia/Projects/Internship_USTC/Data/FLARE_DB/HSX_Test")
-WOUT = os.path.join(DATA, "shared_data", "wout_hsx.nc")
+SHARED = os.path.join(DATA, "shared_data")
+WOUT = os.path.join(SHARED, "wout_hsx.nc")
+COILS = os.path.join(SHARED, "coils.hsx")
 
-
-def load_mesh_nodes():
-    """RETURN (R, Z, phi, Lc) 1-D arrays for the magnetic-mesh nodes.
-
-    TODO wire to your FLARE workflow, e.g. from mmesh.nc:
-
-        from flare.mmesh.unstructured import Mmesh
-        m = Mmesh.loadnc(".../mmesh.nc")
-        R, Z, phi, Lc = [], [], [], []
-        for iphi in range(len(m.phi)):
-            rz = np.asarray(m.rzmesh(iphi, 0))      # (n_nodes, 2) at this plane
-            R.append(rz[:, 0]); Z.append(rz[:, 1])
-            phi.append(np.full(len(rz), m.phi[iphi]))
-            Lc.append(<connection length per node at this plane>)
-        return map(np.concatenate, (R, Z, phi, Lc))
-
-    The exact node / Lc accessor is the one detail we still need to confirm
-    against your FLARE build.
-    """
-    raise NotImplementedError("wire load_mesh_nodes() to your mmesh.nc / Lc result")
+# Winding-pack half-width [m]: coils.hsx gives filament CENTERLINES, so inflating
+# the keep-out points this far toward the plasma keeps the vessel clear of the
+# copper (set to your HSX conductor half-thickness; 0.0 = centerline only).
+CONDUCTOR_HALF_WIDTH = 0.0
 
 
 def main():
@@ -44,28 +28,34 @@ def main():
         phi_start_deg=0.0, phi_end_deg=45.0,
         n_tor_control=6, n_pol_control=12,
         n_intermediate_per_cp=7, n_pol_eval=360,
-        initial_loft_offset_m=0.07,                       # start enclosing the cloud
-        step_schedule_m=[-0.03, -0.01, -0.005, -0.002, -0.001],   # shrink to fit
+        initial_loft_offset_m=0.01,                 # start just outside the LCFS
+        step_schedule_m=[0.03, 0.01, 0.005, 0.002], # grow OUTWARD toward the coils
         min_loft_m=0.0, max_loft_m=0.40,
+        post_loft_backoff_m=0.0,                    # raise for extra coil clearance
         spline_type="pchip", enforce_stellarator_symmetry=True,
     )
 
     surface = LoftSurface.from_wout(WOUT, surface_index=cfg.surface_index)
     grids = build_grids(surface, cfg)
 
-    R, Z, phi, Lc = load_mesh_nodes()
-    LC_THRESHOLD = 50.0   # [m] keep long-Lc edge channels (tune to your Lc map)
-    interference = from_mesh_nodes(
-        grids, surface.nfp, R, Z, phi,
-        node_Lc=Lc, lc_threshold=LC_THRESHOLD, role="keep_in",
-    )
+    interference = from_coils_makegrid(
+        grids, COILS, role="keep_out", inflate=CONDUCTOR_HALF_WIDTH)
 
     surf, state = run_loft(grids, cfg, interference, verbose=True)
+    print(f"loft distance: {state.spl_ctrl.min()*100:.1f}..{state.spl_ctrl.max()*100:.1f} cm")
 
-    out = os.path.join(DATA, "HSX_edge_manifold.torosurf")
+    out = os.path.join(DATA, "HSX_vacuum_vessel.torosurf")
     write_torosurf(out, surf["R"], surf["Z"], surf["zeta"], surface.nfp,
-                   label="HSX edge manifold (stelloft)")
+                   label="HSX vacuum vessel (stelloft, coils.hsx keep-out)")
     print(f"wrote {out}")
+
+
+# -- Future (Part B): edge manifold from diffusing field lines --------------------
+# Once FIREFLY's strike_point_density is extended to record diffusing field-line
+# trajectories (c%p at each toroidal plane), build a keep-in cloud with
+# `from_plane_points` / `from_polylines` and run with a shrinking (negative)
+# step_schedule starting from a large initial_loft_offset to get the volume-
+# minimising edge manifold (Fig. 9-11).
 
 
 if __name__ == "__main__":
