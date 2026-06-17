@@ -17,3 +17,15 @@ venv/
 # Editor / OS
 .vscode/
 .DS_Store
+*:Zone.Identifier
+
+# Local reference copies of third-party source (installed separately from
+# ~/Academia/Software; kept here only for easy reading, not version-controlled)
+Code/Source_Codes/
+
+# Build / packaging / lofted-surface outputs
+*.egg-info/
+build/
+dist/
+*.torosurf
+*.stl

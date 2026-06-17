@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stelloft"
+version = "0.1.0"
+description = "Headless Python port of the Stelloft lofting algorithm (Schmitt et al. 2025) for stellarator vacuum-vessel / edge-manifold design."
+requires-python = ">=3.9"
+# numpy/scipy/xarray come from the conda env; coilpy is installed from source
+# (~/Academia/Software) -- install this package with `pip install -e . --no-deps`
+# so pip does not try to resolve coilpy from PyPI.
+dependencies = ["numpy", "scipy", "xarray"]
+
+[tool.setuptools.packages.find]
+where = ["Code"]
+include = ["stelloft*"]
