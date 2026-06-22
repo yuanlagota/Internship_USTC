@@ -20,6 +20,7 @@ from flare.analysis.poincare_map import loadtxt_maps, plot_maps
 
 from firefly.geometry import init_workspace, set_pfc, pfc_from_flare
 from firefly.tasks import connection_length, strike_point_density, heat_load_proxy
+from firefly.objectives import heat
 
 ####################################################################################################### 
                                             # CONTROLS # 
@@ -182,33 +183,33 @@ set_pfc(pfc_nc)
 #######################################################################################################     
 
 
-'''1. Generate 3D mesh for launch locations at last closed flux surface (LCFS)''' 
+# '''1. Generate 3D mesh for launch locations at last closed flux surface (LCFS)''' 
 
-fluxsurf3d_grid(
-    r0 = reference_point, # a reference point on a magnetic flux surface that is closed. MAKE SURE IT MATCHES ONE OF THE INNER BOUNDARY POINTS 
-    nsym = 4, # toroidal symmetry 
-    nphi = 90, # steps in toroidal direction i.e. where to look 
-    ntheta = 360, # steps in poloidal direction
-    endpoints=True, # include/exclude periodic endpoints of grid 
-    output = os.path.join(mesh_dir, grid_filename) #Filename for output 
-    )
+# fluxsurf3d_grid(
+#     r0 = reference_point, # a reference point on a magnetic flux surface that is closed. MAKE SURE IT MATCHES ONE OF THE INNER BOUNDARY POINTS 
+#     nsym = 4, # toroidal symmetry 
+#     nphi = 90, # steps in toroidal direction i.e. where to look 
+#     ntheta = 360, # steps in poloidal direction
+#     endpoints=True, # include/exclude periodic endpoints of grid 
+#     output = os.path.join(mesh_dir, grid_filename) #Filename for output 
+#     )
 
-'''2. Calculate Connection Length Maps by field line tracing from LCFS to divertor targets USING FIELD LINE RECONSTRUCTION'''
-if rank == 0: 
-    connection_length(
-        filename = os.path.join(mesh_dir, grid_filename),
-        max_lc=1e3, 
-        output= os.path.join(mesh_dir, lc_filename)
-        )
-comm.Barrier() 
+# '''2. Calculate Connection Length Maps by field line tracing from LCFS to divertor targets USING FIELD LINE RECONSTRUCTION'''
+# if rank == 0: 
+#     connection_length(
+#         filename = os.path.join(mesh_dir, grid_filename),
+#         max_lc=1e3, 
+#         output= os.path.join(mesh_dir, lc_filename)
+#         )
+# comm.Barrier() 
 
-'''3. Connection-length map plot on the launch flux surface (.dat)''' 
-if rank == 0: 
-    connectionlength = Dataset.loadtxt(os.path.join(mesh_dir, lc_filename))     # grid rebuilt from the .grid in the header
-    connectionlength["Lc"].plot()                                 # Lc = Lc_neg + Lc_pos  [m]
-    plt.savefig(os.path.join(mesh_plotdir, lc_plot), dpi=200)
-    plt.show()
-comm.Barrier()
+# '''3. Connection-length map plot on the launch flux surface (.dat)''' 
+# if rank == 0: 
+#     connectionlength = Dataset.loadtxt(os.path.join(mesh_dir, lc_filename))     # grid rebuilt from the .grid in the header
+#     connectionlength["Lc"].plot()                                 # Lc = Lc_neg + Lc_pos  [m]
+#     plt.savefig(os.path.join(mesh_plotdir, lc_plot), dpi=200)
+#     plt.show()
+# comm.Barrier()
 
 ####################################################################################################### 
                                     # PART 3: DIVERTOR LOAD # 
@@ -271,3 +272,129 @@ comm.Barrier()
 #     plt.savefig(os.path.join(mesh_plotdir, lht_plot), dpi=200)
 #     plt.show()
 # comm.Barrier() 
+
+####################################################################################################### 
+                                    # PART 4: DIVERTOR PLATE # 
+#######################################################################################################     
+
+# ---- Imports (hoist to the top of the file once you're settled) ----
+import shutil
+from moose.geometry import Hypersurf3d
+from firefly.geometry import VcasingGenerator, set_pfc, validate_divertor_geometry
+from firefly.pso import PSO, Bounds
+# heat_load_proxy is already imported from firefly.tasks at the top of your script.
+
+# ---- Output folder for this optimization run ----
+plate_dir = ensure_dir(model_dir + '/Divertor_Plate_PSO')
+boundary_nc = os.path.join(plate_dir, 'candidate_boundary.nc')   # rewritten each evaluation
+hload_nc    = os.path.join(plate_dir, 'heat_load_proxy.nc')      # rewritten each evaluation
+swarm_nc    = os.path.join(plate_dir, 'swarm.nc')                # PSO checkpoint (resume from here)
+
+# ---- Fixed casing = your vessel wall (the generator builds plates INSIDE this) ----
+firstwall = Torosurf.loadtxt(os.path.join(model_dir, boundary_filename))   # nfp=4 is inherited from here
+
+# ---- Heat-load-proxy physics settings (mirror your PART 3 call) ----
+N0, T0, CHI = 1.0e19, 100.0, 1.0
+NPARTICLES  = 30000                       # lowered from 1e5 for prototyping speed; raise for the final run
+PROXY_PARAMS = dict(tau=5e-7, dphi=0.5, dl=0.01)
+
+# ---- VcasingGenerator: plates ride along the casing; shape coeffs = (s, u, a, o) per base-phi ----
+#   NOTE on units: plate/gap LENGTHS below are in METRES; the offset bound 'ulim' (further down)
+#   is in OUTPUT units = cm (the generator default). This split is a quirk of the FIREFLY API.
+bgen = VcasingGenerator(
+    firstwall = firstwall,
+    phi1      = -22.5,        # lower toroidal bound of the plate [deg]; keep |phi| <= 45 (your meshed half-period)
+    phi2      =  22.5,        # upper toroidal bound of the plate [deg]
+    l1_plate  = 0.10,         # primary plate length   [m]
+    l2_plate  = 0.10,         # secondary plate length [m]
+    l1_gap    = 0.02,         # pumping-gap length on primary plate   [m]
+    l2_gap    = 0.02,         # pumping-gap length on secondary plate [m]
+    thickness = 0.02,         # plate thickness [m] (5 cm default is chunky for HSX)
+    ntune     = 0,            # 0 => 16 free params (s,u,a,o at 4 base-phi). Raise later for finer shapes.
+    units     = "cm",
+    dphi      = 0.5,
+)
+
+# ---- Self-contained objective: x (shape coeffs) -> penalty-weighted peak heat load ----
+class VcasingHeatLoad:
+    """Minimise peak heat load; penalise load landing on the casing/pump/sides rather than the targets."""
+    def __init__(self, bgen, penalty):
+        self.bgen, self.penalty = bgen, penalty
+        self._x, self._boundary = None, None
+
+    def _build(self, x):
+        if self._x is None or np.any(self._x != x):
+            self._boundary = self.bgen(x)
+            self._x = x.copy()
+        return self._boundary
+
+    def validate(self, x):
+        # screen out plates that intersect / are geometrically invalid BEFORE running the proxy
+        b = self._build(x)
+        targets = {k: v for k, v in b.items() if k in self.bgen.categories["targets"]}
+        return validate_divertor_geometry(targets)
+
+    def gbest_update(self, i):
+        # archive the heat-load map every time the global best improves
+        if rank == 0 and os.path.exists(hload_nc):
+            shutil.copy(hload_nc, os.path.join(plate_dir, f'heat_load_gbest{i}.nc'))
+
+    def __call__(self, x):
+        b = self._build(x)
+        if rank == 0:
+            Hypersurf3d(b).savenc(boundary_nc)
+        comm.Barrier()
+
+        set_pfc(boundary_nc)
+        res = heat_load_proxy(N0, T0, CHI, NPARTICLES, output=hload_nc, **PROXY_PARAMS)
+        f_hload, q_peak = res            # each is {surface_name: value}; q_peak in [m**-2], scale by P_SOL
+
+        # one-time sanity check that summary surface-names match the generator's surface keys
+        if rank == 0 and not getattr(self, "_checked", False):
+            print("q_peak surfaces:", sorted(q_peak.keys()))
+            print("generator categories:", {C: ks for C, ks in self.bgen.categories.items()})
+            self._checked = True
+
+        objective = 0.0
+        for C, keys in self.bgen.categories.items():
+            vals = [q_peak[k] for k in keys if k in q_peak]
+            if vals:
+                objective += self.penalty.get(C, 1.0) * max(vals)
+        return objective
+
+# penalise heat on everything that ISN'T the target plates (you WANT the heat on the targets, but spread)
+penalty = {"targets": 1.0, "firstwall": 10.0, "pump": 10.0, "sides": 10.0}
+obj = VcasingHeatLoad(bgen, penalty)
+
+# ---- PSO bounds: 'ulim' is the normal-offset range in OUTPUT units (cm); widen/sign-flip after first look ----
+lower, upper = bgen.bounds(ulim=(-10.0, 10.0), f=1.0, alim=(18.0, 180.0))
+xbounds = Bounds(lower, upper, validate_position=obj.validate, enforce="clip")
+
+# ---- Run PSO ----
+'''Divertor plate shape optimization via particle swarm'''
+swarm = PSO(
+    obj           = obj,
+    xbounds       = xbounds,
+    ntest         = 12,                 # particles
+    max_iter      = 50,                 # raise once the parametrization behaves (cost ~ ntest*max_iter evals)
+    gbest_update  = obj.gbest_update,
+    # resume      = swarm_nc,           # uncomment to continue a previous run
+)
+gbest = swarm.optimize(autosave=swarm_nc)
+
+if rank == 0:
+    print(f"\nBest objective: {gbest.value:.4e}  (found at iteration {gbest.iterations})")
+    print("Best shape coefficients x =", gbest.x)
+    # write the winning geometry to disk for inspection / FLARE export
+    Hypersurf3d(bgen(gbest.x)).savenc(os.path.join(plate_dir, 'best_boundary.nc'))
+comm.Barrier()
+
+'''(optional) Visualise the best plate cross-section at the symmetry plane'''
+# if rank == 0:
+#     best = bgen(gbest.x)
+#     firstwall.rzslice(0.0).view()
+#     for key in bgen.categories["targets"]:
+#         best[key].rzslice(0.0).view()
+#     plt.savefig(os.path.join(plate_dir, 'best_plate_0deg.png'), dpi=200)
+#     plt.show()
+# comm.Barrier()
