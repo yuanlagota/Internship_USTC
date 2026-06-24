@@ -1,3 +1,7 @@
+####################################################################################################### 
+                                            # PACKAGES # 
+#######################################################################################################  
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -6,10 +10,12 @@ from pathlib import Path
 from mpi4py import MPI
 import netCDF4
 from matplotlib.ticker import FuncFormatter
-
+import shutil 
 
 from moose.data import Dataset
-from moose.geometry import Torosurf
+from moose.geometry import Torosurf, Hypersurf3d
+if not hasattr(Torosurf, "slice"):
+    Torosurf.slice = lambda self, phi: self.rzslice(phi, units=self.units)
 from moose.geometry.curves import BsplineCurve
 
 from flare import model, control,  tasks, analysis, mmesh
@@ -18,8 +24,9 @@ from flare.analysis import equi2d, PoincareMap, bfield, boundary
 from flare.mmesh.unstructured import Mmesh
 from flare.analysis.poincare_map import loadtxt_maps, plot_maps
 
-from firefly.geometry import init_workspace, set_pfc, pfc_from_flare
+from firefly.geometry import init_workspace, set_pfc, pfc_from_flare, validate_divertor_geometry, VcasingGenerator
 from firefly.tasks import connection_length, strike_point_density, heat_load_proxy
+from firefly.pso import PSO, Bounds
 
 ####################################################################################################### 
                                             # CONTROLS # 
