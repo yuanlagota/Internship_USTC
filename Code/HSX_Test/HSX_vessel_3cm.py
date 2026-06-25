@@ -1,5 +1,5 @@
 ####################################################################################################### 
-                                            # PACKAGES # 
+                                    # PACKAGES, FUNCTIONS, AND CLASSES # 
 #######################################################################################################  
 
 import numpy as np
@@ -28,11 +28,8 @@ from flare.analysis.poincare_map import loadtxt_maps, plot_maps
 
 from firefly.geometry import init_workspace, set_pfc, pfc_from_flare, validate_divertor_geometry, VcasingGenerator
 from firefly.tasks import connection_length, strike_point_density, heat_load_proxy
+from firefly.objectives import HeatLoadProxy 
 from firefly.pso import PSO, Bounds
-
-####################################################################################################### 
-                                            # SETTINGS # 
-#######################################################################################################  
 
 # ---- MPI-safe directory creation) ----
 comm = MPI.COMM_WORLD
@@ -44,9 +41,76 @@ def ensure_dir(path):
     comm.Barrier()              # ranks wait until the dir exists
     return path
 
+# ---- FIXED OBJECTIVE FUNCTION FOR PSO ----
+# NOTE: This is a fixed version of heat_load.py i.e. the objective function class HeatLoadProxy from objectives. '
+#       Self-contained objective: x (shape coeffs) -> penalty-weighted peak heat load
+#       Removed class attributes that were only relevant in calling the heat load proxy anyway, as well as folder names 
+class FixedHeatLoadProxy:
+    """Minimise peak heat load; penalise load landing on the casing/pump/sides rather than the targets."""
+
+    # This is initialisation which is the exact same 
+    def __init__(self, bgen, penalty):
+        self.bgen, self.penalty = bgen, penalty
+        self._x, self._boundary = None, None
+
+    # This is _bgen_call which is the exact same 
+    def _build(self, x):
+        if self._x is None or np.any(self._x != x):
+            self._boundary = self.bgen(x)
+            self._x = x.copy()
+        return self._boundary
+    
+    # NOTE: This is validate
+    def validate(self, x):
+        # screen out plates that intersect / are geometrically invalid BEFORE running the proxy
+        b = self._build(x)
+        targets = {k: v for k, v in b.items() if k in self.bgen.categories["targets"]}
+        return validate_divertor_geometry(targets)
+
+    # This is gbest_update which should be the exact same, but with a slight tweak of copying instead of overriding 
+    def gbest_update(self, i):
+        # archive the heat-load map every time the global best improves
+        if rank == 0 and os.path.exists(iter_hload_nc):
+            shutil.copy(iter_hload_nc, os.path.join(plate_dir, f'heat_load_gbest{i}.nc'))
+
+    # NOTE: This is the __call__ i.e. running the class itself and where FIX 2 WAS MADE (See below)  
+    def __call__(self, x):
+
+        # Step 1: Generate boundary geometry from shape coefficients
+        b = self._build(x)
+        if rank == 0:
+            Hypersurf3d(b).savenc(candidate_boundary_nc)
+        comm.Barrier()
+
+        # Step 2.1: Compute heat load distribution
+        set_pfc(candidate_boundary_nc)
+        res = heat_load_proxy(N0, T0, CHI, NPARTICLES, TAU, DPHI, DL, output=iter_hload_nc)
+        f_hload, q_peak = res            # each is {surface_name: value}; q_peak in [m**-2], scale by P_SOL
+
+        # NOTE: Added one-time sanity check that summary surface-names match the generator's surface keys
+        if rank == 0 and not getattr(self, "_checked", False):
+            print("q_peak surfaces:", sorted(q_peak.keys()))
+            print("generator categories:", {C: ks for C, ks in self.bgen.categories.items()})
+            self._checked = True
+
+        # Step 2.2: Evaluate objective
+        objective = 0.0
+        for C, keys in self.bgen.categories.items():
+            factor = self.penalty.get(C, 1.0)
+            # NOTE: This is the FIX from HeatLoadProxy with incorrect keys i.e. max([results[key]["peak"] for key in key_list])
+            vals = [q_peak[k] for k in keys if k in q_peak] 
+            if vals:
+                objective += factor * max(vals)
+        return objective
+
+####################################################################################################### 
+                                # PART 1: SETTINGS & MODEL INITIALISATION  # 
+#######################################################################################################  
+
 # ---- Generating the Model ----
 database_folder, model_folder = "test", "HSX_vessel_3cm"
 model.load(model = model_folder, database=database_folder)  # FILE PATHS ARE RELATIVE TO WHAT IS IN THE DATABASE CONFIGURATION FILE I.E. WHAT FILE PATH IS SET TO 'TEST'
+
 
 # ---- Parameters ----
 
@@ -79,21 +143,21 @@ control.screen_output.verbosity = 0
 # ---- Folders ----
 main_folder = 'HSX_Test'
 main_dir = ensure_dir(f'../../Data/FLARE_DB/{main_folder}')
-model_dir = ensure_dir(main_dir + f'/{model_folder}')
-mesh_dir = ensure_dir(model_dir + f'/Mmesh_Lc_Dload_{P1[0]:.3f}-{P2[0]:.3f}')
+model_dir = ensure_dir(os.path.join(main_dir, f'{model_folder}'))
+mesh_dir = ensure_dir(os.path.join(model_dir, f'Mmesh_Lc_Dload_{P1[0]:.3f}-{P2[0]:.3f}'))
 
-boundary_file = model_dir + '/.boundary'
+boundary_file = os.path.join(model_dir, '.boundary')
 with open(boundary_file, 'r') as f:
     lines = f.readlines()
 boundary_filename = lines[1].split()[1]
 boundary_dat = os.path.join(model_dir, boundary_filename)
 
 plots_dir = ensure_dir(f'../../Data/Plots/{main_folder}/{boundary_filename.split(".")[0]}')
-mesh_plotdir = ensure_dir(plots_dir + f'/Mmesh_Lc_Dload_{P1[0]:.3f}-{P2[0]:.3f}')
+mesh_plotdir = ensure_dir(os.path.join(plots_dir, f'Mmesh_Lc_Dload_{P1[0]:.3f}-{P2[0]:.3f}'))
 innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
 
 ####################################################################################################### 
-                                # PART 1: MAGNETIC MESH GENERATION # 
+                                # PART 2: MAGNETIC MESH GENERATION # 
 #######################################################################################################     
 
 # '''1. Creating the inner boundary and mesh'''
@@ -152,9 +216,60 @@ innerbound_plotname = f'innerbound_{P1[0]:.3f}-{P2[0]:.3f}.png'
                                             # SETTINGS # 
 #######################################################################################################  
 
+# ---- Parameters ---- 
+
+# Controls
+# control.fluxsurf3d.npoints = 1024
+
+
+# Plotting
+# NU = NV = 147                # nodes (toroidal, poloidal)
+# NCELL = (NU - 1)             # 146 cells per direction
+# ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 deg
+
 # ---- Poincare Reference Point (SET FIRST) ---- 
 reference_point = (0.915, 0, 45) 
 
+
+# Step Sizes 
+DPHI = 0.5 # Toroidal Resolution
+DL = 0.01  # Output mesh resolution along PFC 
+
+# Connection Length 
+MAX_LC = 1e3 # Maximum tracing length in one direction 
+
+# Field Line Diffusion
+DCOEFF = 1e-5 # Field Line Diffusion Coefficient (Area/Length i.e. Length)
+NSAMPLES = 1e5 # Number of field line samples 
+BSTEP = 0.05  # Step size along field lines 
+
+
+# Heat Load Proxy
+N0 = 1.0e19 # Plasma Particle Density
+T0 = 100 # Temperature in eV
+CHI = 1.0 # Diffusion 
+NPARTICLES  = 0.3e5  # Number of test particles 
+TAU = 5e-7 # Time step for field line tracing 
+PARAMS = dict(tau=TAU, dphi=DPHI, dl=DL) # For optimiser later 
+
+# Vcasing parameters i.e. Plate Dimensions, Bounds, and Penalties + Other stuff 
+PHI1 = -22.5
+PHI2 = 22.5 
+L1_PLATE  = 0.10 # primary plate length   [m]
+L2_PLATE  = 0.10 # secondary plate length [m]
+L1_GAP    = 0.02 # pumping-gap length on primary plate   [m]
+L2_GAP    = 0.02 # pumping-gap length on secondary plate [m]
+THICKNESS = 0.02 # plate thickness [m] (5 cm default is chunky for HSX)
+NTUNE = 0.0 
+
+
+ULIM =(-0.10, 0.10) # Domain of shape coefficients for u: how far off the casing wall, along the normal, is the plate pushed off
+ALIM = (18.0, 180.0) # Domain of shape coefficients: What is the V opening between the two plates
+PENALTY = {"targets": 1.0, "firstwall": 10.0, "pump": 10.0, "sides": 10.0} # NOTE: Should pumps be included? Penalise heat on everything that ISN'T the target plates (you WANT the heat on the targets, but spread)
+
+# PSO Parameters
+NTEST = 12 
+MAX_ITER = 10
 
 # ---- Folders ----
 
@@ -183,9 +298,8 @@ lht_filename = 'heat_load_proxy.nc'
 lht_plot ='heat_load.png'
 
 swarm_filename = 'swarm.nc'
-candidate_boundary_filename = 'candidate_boundary.nc'
+candidate_boundary_filename = 'candidate_boundary.nc' # Filename for passing candidate boundaries geometry 
 best_boundary_filename = 'best_boundary.nc'
-best_plate_plot =  f'best_plate_{reference_point[2]}deg.png'
 
 fld_nc = os.path.join(mesh_dir, fld_filename)
 fld_png = os.path.join(mesh_plotdir, fld_plot)
@@ -193,14 +307,15 @@ lht_nc = os.path.join(mesh_dir, lht_filename)
 lht_png = os.path.join(mesh_plotdir, lht_plot)
 
 
-plate_dir = ensure_dir(model_dir + '/Divertor_Plate_PSO') # NOTE: Need to change to make it custom 
-boundary_nc = os.path.join(plate_dir, candidate_boundary_filename)   # rewritten each evaluation
-hload_nc    = os.path.join(plate_dir, lht_filename)                   # rewritten each evaluation
+plate_dir = ensure_dir(os.path.join(model_dir, f'Divertor_Plate_{L1_PLATE}mlength_{THICKNESS}mthick')) 
+candidate_boundary_nc = os.path.join(plate_dir, candidate_boundary_filename)   # rewritten each evaluation
+iter_hload_nc    = os.path.join(plate_dir, lht_filename)                   # rewritten each evaluation
 swarm_nc    = os.path.join(plate_dir, swarm_filename)                # PSO checkpoint (resume from here)
 best_boundary_nc = os.path.join(plate_dir, best_boundary_filename)
+best_plate_plot =  f'best_plate_{L1_PLATE}mlength_{THICKNESS}mthick_{reference_point[2]}deg.png'
 best_plate_png = os.path.join(plate_dir, best_plate_plot)
 
-# ---- Load the Workspace and First Wall ----
+# ---- Load the Workspace for Divertor Load Optimisation ----
 
 init_workspace(filename = mmesh_nc, seed = 0) 
 
@@ -214,114 +329,8 @@ set_pfc(pfc_nc)
 # Access first wall directly to be the fixed casing i.e. vessel wall where generator builds plates inside 
 firstwall = Torosurf.loadtxt(boundary_dat)   # nfp=4 is inherited from here
 
-# ---- Parameters ---- 
-
-# Controls
-# control.fluxsurf3d.npoints = 1024
-
-
-# Plotting
-# NU = NV = 147                # nodes (toroidal, poloidal)
-# NCELL = (NU - 1)             # 146 cells per direction
-# ICUT = (NU - 1) // 2         # = 73 : toroidal cell index where phi crosses 45 deg
-
-# Step Sizes 
-DPHI = 0.5
-DL = 0.01 
-
-# Connection Length 
-MAX_LC = 1e3 
-
-# Field Line Diffusion
-DCOEFF = 1e-5 
-NSAMPLES = 1e5 
-BSTEP = 0.05 
-
-
-# Heat Load Proxy
-N0 = 1.0e19
-T0 = 100
-CHI = 1.0
-NPARTICLES  = 0.3e5  # lowered from 1e5 for prototyping speed; raise for the final run
-TAU = 5e-7
-
-
-# VcasingGenerator: plates ride along the casing; shape coeffs = (s, u, a, o) per base-phi 
-# NOTE on units: MAKE SURE TO MATCH plate/gap lengths and offset bounds i.e. in METRES. This split is a quirk of the FIREFLY API.
-bgen = VcasingGenerator(
-    firstwall = firstwall,
-    phi1      = -22.5,        # lower toroidal bound of the plate [deg]; keep |phi| <= 45 (your meshed half-period)
-    phi2      =  22.5,        # upper toroidal bound of the plate [deg]
-    l1_plate  = 0.10,         # primary plate length   [m]
-    l2_plate  = 0.10,         # secondary plate length [m]
-    l1_gap    = 0.02,         # pumping-gap length on primary plate   [m]
-    l2_gap    = 0.02,         # pumping-gap length on secondary plate [m]
-    thickness = 0.02,         # plate thickness [m] (5 cm default is chunky for HSX)
-    ntune     = 0,            # 0 => 16 free params (s,u,a,o at 4 base-phi). Raise later for finer shapes.
-    units     = "m",
-    dphi      = DPHI,
-)
-
-# NOTE: Self-contained objective: x (shape coeffs) -> penalty-weighted peak heat load
-class VcasingHeatLoad:
-    """Minimise peak heat load; penalise load landing on the casing/pump/sides rather than the targets."""
-    def __init__(self, bgen, penalty):
-        self.bgen, self.penalty = bgen, penalty
-        self._x, self._boundary = None, None
-
-    def _build(self, x):
-        if self._x is None or np.any(self._x != x):
-            self._boundary = self.bgen(x)
-            self._x = x.copy()
-        return self._boundary
-
-    def validate(self, x):
-        # screen out plates that intersect / are geometrically invalid BEFORE running the proxy
-        b = self._build(x)
-        targets = {k: v for k, v in b.items() if k in self.bgen.categories["targets"]}
-        return validate_divertor_geometry(targets)
-
-    def gbest_update(self, i):
-        # archive the heat-load map every time the global best improves
-        if rank == 0 and os.path.exists(hload_nc):
-            shutil.copy(hload_nc, os.path.join(plate_dir, f'heat_load_gbest{i}.nc'))
-
-    def __call__(self, x):
-        b = self._build(x)
-        if rank == 0:
-            Hypersurf3d(b).savenc(boundary_nc)
-        comm.Barrier()
-
-        set_pfc(boundary_nc)
-        res = heat_load_proxy(N0, T0, CHI, NPARTICLES, TAU, DPHI, DL, output=hload_nc)
-        f_hload, q_peak = res            # each is {surface_name: value}; q_peak in [m**-2], scale by P_SOL
-
-        # one-time sanity check that summary surface-names match the generator's surface keys
-        if rank == 0 and not getattr(self, "_checked", False):
-            print("q_peak surfaces:", sorted(q_peak.keys()))
-            print("generator categories:", {C: ks for C, ks in self.bgen.categories.items()})
-            self._checked = True
-
-        objective = 0.0
-        for C, keys in self.bgen.categories.items():
-            vals = [q_peak[k] for k in keys if k in q_peak]
-            if vals:
-                objective += self.penalty.get(C, 1.0) * max(vals)
-        return objective
-
-# {enalise heat on everything that ISN'T the target plates (you WANT the heat on the targets, but spread)
-penalty = {"targets": 1.0, "firstwall": 10.0, "pump": 10.0, "sides": 10.0} # NOTE: Should pumps be included? 
-obj = VcasingHeatLoad(bgen, penalty)
-
-# PSO bounds: 'ulim' is the normal-offset range in OUTPUT units; widen/sign-flip after first look ----
-lower, upper = bgen.bounds(ulim=(-0.10, 0.10), f=1.0, alim=(18.0, 180.0))
-xbounds = Bounds(lower, upper, validate_position=obj.validate, enforce="clip")
-
-
-
-
 ####################################################################################################### 
-                                    # PART 2: CONNECTION LENGTH # 
+                                    # PART 3: CONNECTION LENGTH # 
 #######################################################################################################     
 
 
@@ -354,7 +363,7 @@ xbounds = Bounds(lower, upper, validate_position=obj.validate, enforce="clip")
 # comm.Barrier()
 
 ####################################################################################################### 
-                                    # PART 3: DIVERTOR LOAD # 
+                                # PART 4: INITIAL DIVERTOR LOADS # 
 #######################################################################################################     
 
 # '''1. Perform Field line Diffusion and Linearised Heat Transport''' 
@@ -415,15 +424,37 @@ xbounds = Bounds(lower, upper, validate_position=obj.validate, enforce="clip")
 # comm.Barrier() 
 
 ####################################################################################################### 
-                                    # PART 4: DIVERTOR PLATE # 
+                                    # PART 5: DIVERTOR PLATES # 
 #######################################################################################################     
 
 ''' 1. Run the PSO algorithm for Divertor plate shape optimization via particle swarm'''
+
+# VcasingGenerator: plates ride along the casing; shape coeffs = (s, u, a, o) per base-phi 
+bgen = VcasingGenerator(
+    firstwall = firstwall,
+    phi1      = PHI1,        # lower toroidal bound of the plate [deg]; keep |phi| <= 45 (your meshed half-period)
+    phi2      = PHI2,        # upper toroidal bound of the plate [deg]
+    l1_plate  = L1_PLATE,         # primary plate length   [m]
+    l2_plate  = L2_PLATE,         # secondary plate length [m]
+    l1_gap    = L1_GAP,         # pumping-gap length on primary plate   [m]
+    l2_gap    = L2_GAP,         # pumping-gap length on secondary plate [m]
+    thickness = THICKNESS,         # plate thickness [m] (5 cm default is chunky for HSX)
+    ntune     = NTUNE,            # 0 => 16 free params (s,u,a,o at 4 base-phi). Raise later for finer shapes.
+    units     = "m",        # NOTE: MAKE SURE TO MATCH plate/gap lengths and offset bounds i.e. in METRES.
+    dphi      = DPHI,
+)
+
+# Objective Function and PSO Bounds
+obj = FixedHeatLoadProxy(bgen, PENALTY)
+lower, upper = bgen.bounds(ulim=ULIM, alim = ALIM) # PSO bounds: 'ulim' is the normal-offset range in OUTPUT units; widen/sign-flip after first look
+xbounds = Bounds(lower, upper, validate_position=obj.validate, enforce="clip") # NOTE: Make validate_position = None to isolate issue as per TEST 1 to see if the validate error occurs 
+
+# PSO 
 swarm = PSO(
     obj           = obj,
     xbounds       = xbounds,
-    ntest         = 12,                 # particles
-    max_iter      = 50,                 # raise once the parametrization behaves (cost ~ ntest*max_iter evals)
+    ntest         = NTEST,                 # particles
+    max_iter      = MAX_ITER,                 # raise once the parametrization behaves (cost ~ ntest*max_iter evals)
     gbest_update  = obj.gbest_update,
     # resume      = swarm_nc,           # uncomment to continue a previous run
 )
@@ -436,12 +467,53 @@ if rank == 0:
     Hypersurf3d(bgen(gbest.x)).savenc(best_boundary_nc)
 comm.Barrier()
 
-'''2. Visualise the best plate cross-section at the symmetry plane'''
+'''2. Visualise the best plate at the Poincare Reference Point cross-section at the symmetry plane'''
 if rank == 0:
     best = bgen(gbest.x)
-    firstwall.rzslice(0.0).view()
+    firstwall.rzslice(reference_point[2]).view()
     for key in bgen.categories["targets"]:
-        best[key].rzslice(0.0).view()
+        best[key].rzslice(reference_point[2]).view()
     plt.savefig(best_plate_png, dpi=200)
     plt.show()
 comm.Barrier()
+
+
+# ---- TESTS FOR ERRORS ---- 
+
+# # TEST 1: Sees the error where vcasing.py indexes the targets as "targets" but _boundary_generator.py indexes it as "plates" 
+# if rank == 0:
+#     print("VcasingGenerator.categories keys:", list(bgen.categories.keys()))
+#     try:
+#         dt = bgen.divertor_targets          # base-class property -> categories["plates"]
+#         print("divertor_targets resolved:", dt)
+#     except Exception as e:
+#         print("divertor_targets RAISED:", repr(e))
+#     # a dummy boundary so validate() has something to chew on:
+#     lower, upper = bgen.bounds(ulim=(-0.10, 0.10), f=1.0, alim=(18.0, 180.0))
+#     b = bgen(0.5 * (lower + upper))
+#     try:
+#         print("bgen.validate(...) returned:", bgen.validate(b))
+#     except Exception as e:
+#         print("bgen.validate(...) RAISED:", repr(e))
+
+# # TEST 2: See the error where HeatLoadProxy accesses the results of heat_load_proxy wrong 
+
+# # Objective Function 
+# obj = HeatLoadProxy(
+#     bgen        = bgen,
+#     n_bg        = N0,
+#     T_bg        = T0,
+#     chi_perp    = CHI,
+#     n_MC        = NPARTICLES,
+#     params      = PARAMS,
+#     penalty     = PENALTY,
+#     boundary_nc = candidate_boundary_nc,
+# )
+
+# if rank == 0:
+#     print("=== Direct single evaluation of the STOCK HeatLoadProxy ===", flush=True)
+# lower, upper = bgen.bounds(ulim=ULIM, alim = ALIM)
+# x_test = 0.5 * (lower + upper)              # a single mid-range candidate
+# value = obj(x_test)                         # <-- if my claim is right, this line raises
+# if rank == 0:
+#     print("Stock objective returned:", value, flush=True)

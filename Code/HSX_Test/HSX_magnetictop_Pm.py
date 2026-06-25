@@ -14,7 +14,7 @@ from flare.analysis.poincare_map import loadtxt_maps, plot_maps
 
 
 ####################################################################################################### 
-                                            # CONTROLS # 
+                            # PART 1: SETTINGS AND MODEL INITIALISATION # 
 #######################################################################################################  
 
 # ---- MPI-safe directory creation) ----
@@ -148,7 +148,7 @@ def poincare_plots(R_start, R_end, nR, z0, phi0, phi_section, nsym, case_id, mai
         comm.Barrier()   
 
 ####################################################################################################### 
-                                            # PROGRAM # 
+                                 # PART 2: MAGNETIC TOPOLOGY ANALYSIS # 
 #######################################################################################################
 
 # I want to make it so that R_start and R_end automatically changes 
